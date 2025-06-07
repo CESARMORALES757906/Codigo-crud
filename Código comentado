@@ -1,0 +1,1375 @@
+#include <mysql.h>      // Esto es para poder usar MySQL, como el conector
+#include <stdio.h>     // Para los printf y scanf que usamos siempre
+#include <stdlib.h>    // Para las cosas básicas como salir del programa
+#include <string.h>    // Para manejar cadenas de texto
+#include <ctype.h>     // Para funciones de letras como pasar a minúsculas
+
+MYSQL *con; // Aquí guardamos la conexión a la base de datos (como un cable virtual)
+
+// Función que se llama cuando algo sale mal
+void finish_with_error() {
+    fprintf(stderr, "Error: %s\n", mysql_error(con)); // Imprime el error feo en rojo
+    mysql_close(con); // Cierra la conexión para no dejar abierto
+    exit(1); // Sale del programa con error (el 1 significa que falló)
+}
+
+// Función para conectar a la base de datos
+void conectar() {
+    con = mysql_init(NULL); // Inicializa la conexión
+    if (con == NULL) { // Si no pudo inicializar
+        fprintf(stderr, "Error al inicializar MySQL\n"); // Dice que falló
+        exit(1); // Y se cierra
+    }
+
+    // Intenta conectarse al servidor MySQL en la compu local
+    if (!mysql_real_connect(con, "localhost", "root", NULL, "observacion_aves", 3306, NULL, 0)) {
+        finish_with_error(); // Si falla, llama a la función de error
+    }
+    printf("Conectado a la base de datos 'observacion_aves'!\n"); // Si sí, celebra
+}
+
+// Función para limpiar lo que quede en el teclado
+void limpiar_buffer() {
+    int c;
+    // Lee caracter por caracter hasta encontrar enter o fin de archivo
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+
+// Función que hace que los resultados se vean bonitos en tablitas
+void mostrar_resultados(MYSQL_RES *result) {
+    MYSQL_ROW row; // Para guardar cada fila
+    MYSQL_FIELD *fields; // Para los nombres de las columnas
+    int num_fields, i; // Contadores
+    int *anchos; // Para saber qué tan ancha es cada columna
+    
+    // Cuenta cuántas columnas trae el resultado
+    num_fields = mysql_num_fields(result);
+    // Obtiene los nombres de las columnas
+    fields = mysql_fetch_fields(result);
+    
+    // Calcula el ancho que necesita cada columna
+    anchos = (int *)malloc(num_fields * sizeof(int)); // Pide memoria
+    for (i = 0; i < num_fields; i++) {
+        anchos[i] = strlen(fields[i].name); // Empieza con el ancho del nombre
+        
+        // Recorre todas las filas para ver cuál es el dato más largo
+        mysql_data_seek(result, 0); // Vuelve al inicio
+        while ((row = mysql_fetch_row(result))) {
+            int len = row[i] ? strlen(row[i]) : 4; // Si es NULL, cuenta 4 letras
+            if (len > anchos[i]) { // Si es más largo que lo que tenía
+                anchos[i] = len; // Lo actualiza
+            }
+        }
+        anchos[i] += 2; // Le suma 2 espacios de margen
+        mysql_data_seek(result, 0); // Vuelve al inicio otra vez
+    }
+    
+    // Imprime los nombres de las columnas
+    printf("\n");
+    for (i = 0; i < num_fields; i++) {
+        printf("%-*s", anchos[i], fields[i].name); // Con el ancho calculado
+    }
+    printf("\n");
+    
+    // Imprime una rayita bajo cada nombre de columna
+    for (i = 0; i < num_fields; i++) {
+        int j;
+        for (j = 0; j < anchos[i]-1; j++) {
+            printf("-"); // Imprime tantos guiones como ancho
+        }
+        printf(" ");
+    }
+    printf("\n");
+    
+    // Ahora imprime los datos de cada fila
+    while ((row = mysql_fetch_row(result))) {
+        for (i = 0; i < num_fields; i++) {
+            printf("%-*s", anchos[i], row[i] ? row[i] : "NULL"); // Formateado
+        }
+        printf("\n");
+    }
+    
+    free(anchos); // Libera la memoria que pidió
+}
+
+// FUNCIONES PARA ASOCIACION 
+
+// Muestra todas las asociaciones que hay
+void listar_asociaciones() {
+    // Hace la consulta SQL
+    if (mysql_query(con, "SELECT idasociacion, nombre, telefono, direccion FROM asociacion ORDER BY nombre")) {
+        finish_with_error(); // Si falla, muestra error
+    }
+
+    // Guarda los resultados
+    MYSQL_RES *result = mysql_store_result(con);
+    if (result == NULL) {
+        finish_with_error(); // Si no hay resultados, error
+    }
+
+    printf("\nListado de asociaciones:\n");
+    mostrar_resultados(result); // Muestra bonito
+    mysql_free_result(result); // Libera memoria
+}
+
+// Crea una nueva asociación
+void crear_asociacion() {
+    char nombre[50], telefono[15], direccion[100]; // Variables para los datos
+    
+    printf("\nRegistro de nueva asociacion\n");
+    printf("Nombre: ");
+    fgets(nombre, sizeof(nombre), stdin); // Lee el nombre
+    nombre[strcspn(nombre, "\n")] = 0; // Quita el enter del final
+    
+    printf("Telefono: ");
+    fgets(telefono, sizeof(telefono), stdin); // Lee teléfono
+    telefono[strcspn(telefono, "\n")] = 0;
+    
+    printf("Direccion: ");
+    fgets(direccion, sizeof(direccion), stdin); // Lee dirección
+    direccion[strcspn(direccion, "\n")] = 0;
+
+    // Prepara el comando SQL para insertar
+    char query[256];
+    snprintf(query, sizeof(query),
+        "INSERT INTO asociacion (nombre, telefono, direccion) "
+        "VALUES('%s', '%s', '%s')",
+        nombre, telefono, direccion);
+
+    // Ejecuta el comando
+    if (mysql_query(con, query)) {
+        finish_with_error(); // Si falla, error
+    }
+    
+    // Si todo bien, muestra el ID que le asignó
+    printf("\nAsociacion registrada con exito. ID: %ld\n", mysql_insert_id(con));
+}
+
+// Actualiza una asociación existente
+void actualizar_asociacion() {
+    listar_asociaciones(); // Primero muestra las que hay
+    printf("\nID de la asociacion a actualizar: ");
+    int id;
+    scanf("%d", &id); // Pide el ID a modificar
+    limpiar_buffer(); // Limpia el enter que dejó el scanf
+    
+    char nombre[50], telefono[15], direccion[100];
+    
+    // Pide los nuevos datos (pueden dejarse vacíos)
+    printf("Nuevo nombre (dejar vacio para no cambiar): ");
+    fgets(nombre, sizeof(nombre), stdin);
+    nombre[strcspn(nombre, "\n")] = 0;
+    
+    printf("Nuevo telefono (dejar vacio para no cambiar): ");
+    fgets(telefono, sizeof(telefono), stdin);
+    telefono[strcspn(telefono, "\n")] = 0;
+    
+    printf("Nueva direccion (dejar vacio para no cambiar): ");
+    fgets(direccion, sizeof(direccion), stdin);
+    direccion[strcspn(direccion, "\n")] = 0;
+
+    // Empieza a construir el comando SQL
+    char query[512] = "UPDATE asociacion SET ";
+    int campos = 0; // Para saber si ya puso algo
+    
+    // Si puso nombre nuevo, lo agrega al comando
+    if (strlen(nombre) > 0) {
+        strcat(query, "nombre = '");
+        strcat(query, nombre);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // Lo mismo con teléfono
+    if (strlen(telefono) > 0) {
+        if (campos > 0) strcat(query, ", "); // Agrega coma si ya había algo
+        strcat(query, "telefono = '");
+        strcat(query, telefono);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // Y con dirección
+    if (strlen(direccion) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "direccion = '");
+        strcat(query, direccion);
+        strcat(query, "'");
+    }
+    
+    // Agrega el WHERE para que solo actualice ese ID
+    char where[50];
+    snprintf(where, sizeof(where), " WHERE idasociacion = %d", id);
+    strcat(query, where);
+
+    // Ejecuta el comando
+    if (mysql_query(con, query)) {
+        finish_with_error();
+    }
+    
+    printf("\nAsociacion actualizada con exito\n");
+}
+
+// Borra una asociación
+void eliminar_asociacion() {
+    listar_asociaciones(); // Muestra las que hay
+    printf("\nID de la asociacion a eliminar: ");
+    int id;
+    scanf("%d", &id); // Pide el ID a borrar
+    limpiar_buffer(); // Limpia el enter
+    
+    // Prepara el comando DELETE
+    char query[100];
+    snprintf(query, sizeof(query), "DELETE FROM asociacion WHERE idasociacion = %d", id);
+    
+    // Pide confirmación porque es peligroso
+    printf("¿Está seguro que desea eliminar esta asociacion? (s/n): ");
+    char confirmacion;
+    scanf("%c", &confirmacion);
+    limpiar_buffer();
+    
+    // Solo borra si dijo que sí
+    if (tolower(confirmacion) == 's') {
+        if (mysql_query(con, query)) {
+            finish_with_error();
+        }
+        printf("\nAsociacion eliminada con exito\n");
+    } else {
+        printf("\nOperacion cancelada\n");
+    }
+}
+
+// FUNCIONES PARA LAS ZONAS DONDE SE OBSERVAN AVES 
+void listar_zonas() {
+    // hace una consulta para traer todas las zonas ordenadas por nombre
+    if (mysql_query(con, "SELECT cod_zona, nombre, provincia, tipo, comunidad_autonoma FROM zona_observacion ORDER BY nombre")) {
+        finish_with_error(); // si falla, muestra error
+    }
+
+    // guarda los resultados de la consulta
+    MYSQL_RES *result = mysql_store_result(con);
+    if (result == NULL) {
+        finish_with_error(); // si no hay resultados, error
+    }
+
+    // muestra el listado con formato bonito
+    printf("\nlistado de zonas de observacion:\n");
+    mostrar_resultados(result);
+    mysql_free_result(result); // libera la memoria
+}
+
+// funcion para agregar una nueva zona
+void crear_zona() {
+    // variables para guardar los datos
+    char nombre[50], provincia[50], tipo[25], comunidad[50];
+    
+    printf("\nregistro de nueva zona de observacion\n");
+    printf("nombre: ");
+    fgets(nombre, sizeof(nombre), stdin); // lee el nombre
+    nombre[strcspn(nombre, "\n")] = 0; // quita el salto de linea
+    
+    printf("provincia: ");
+    fgets(provincia, sizeof(provincia), stdin); // lee la provincia
+    provincia[strcspn(provincia, "\n")] = 0;
+    
+    printf("tipo: ");
+    fgets(tipo, sizeof(tipo), stdin); // lee el tipo de zona
+    tipo[strcspn(tipo, "\n")] = 0;
+    
+    printf("comunidad autonoma: ");
+    fgets(comunidad, sizeof(comunidad), stdin); // lee la comunidad
+    comunidad[strcspn(comunidad, "\n")] = 0;
+
+    // prepara el comando sql para insertar
+    char query[512];
+    snprintf(query, sizeof(query),
+        "INSERT INTO zona_observacion (nombre, provincia, tipo, comunidad_autonoma) "
+        "VALUES('%s', '%s', '%s', '%s')",
+        nombre, provincia, tipo, comunidad);
+
+    // ejecuta el comando
+    if (mysql_query(con, query)) {
+        finish_with_error(); // si falla, muestra error
+    }
+    
+    // muestra el código que le asignó la base de datos
+    printf("\nzona registrada con exito. codigo: %ld\n", mysql_insert_id(con));
+}
+
+// funcion para modificar una zona existente
+void actualizar_zona() {
+    listar_zonas(); // muestra las zonas disponibles
+    printf("\ncodigo de la zona a actualizar: ");
+    int cod_zona;
+    scanf("%d", &cod_zona); // pide el código de la zona a modificar
+    limpiar_buffer(); // limpia el buffer
+    
+    // variables para los nuevos datos
+    char nombre[50], provincia[50], tipo[25], comunidad[50];
+    
+    // pide los nuevos datos (pueden dejarse vacíos)
+    printf("nuevo nombre (dejar vacio para no cambiar): ");
+    fgets(nombre, sizeof(nombre), stdin);
+    nombre[strcspn(nombre, "\n")] = 0;
+    
+    printf("nueva provincia (dejar vacio para no cambiar): ");
+    fgets(provincia, sizeof(provincia), stdin);
+    provincia[strcspn(provincia, "\n")] = 0;
+    
+    printf("nuevo tipo (dejar vacio para no cambiar): ");
+    fgets(tipo, sizeof(tipo), stdin);
+    tipo[strcspn(tipo, "\n")] = 0;
+    
+    printf("nueva comunidad autonoma (dejar vacio para no cambiar): ");
+    fgets(comunidad, sizeof(comunidad), stdin);
+    comunidad[strcspn(comunidad, "\n")] = 0;
+
+    // empieza a construir el comando sql
+    char query[512] = "UPDATE zona_observacion SET ";
+    int campos = 0; // cuenta los campos que se van a actualizar
+    
+    // si hay nuevo nombre, lo agrega al comando
+    if (strlen(nombre) > 0) {
+        strcat(query, "nombre = '");
+        strcat(query, nombre);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // lo mismo con provincia
+    if (strlen(provincia) > 0) {
+        if (campos > 0) strcat(query, ", "); // agrega coma si ya había algo
+        strcat(query, "provincia = '");
+        strcat(query, provincia);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // y con tipo
+    if (strlen(tipo) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "tipo = '");
+        strcat(query, tipo);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // y con comunidad
+    if (strlen(comunidad) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "comunidad_autonoma = '");
+        strcat(query, comunidad);
+        strcat(query, "'");
+    }
+    
+    // agrega la condición WHERE para actualizar solo esa zona
+    char where[50];
+    snprintf(where, sizeof(where), " WHERE cod_zona = %d", cod_zona);
+    strcat(query, where);
+
+    // ejecuta el comando
+    if (mysql_query(con, query)) {
+        finish_with_error();
+    }
+    
+    printf("\nzona actualizada con exito\n");
+}
+
+// funcion para borrar una zona
+void eliminar_zona() {
+    listar_zonas(); // muestra las zonas disponibles
+    printf("\ncodigo de la zona a eliminar: ");
+    int cod_zona;
+    scanf("%d", &cod_zona); // pide el código de la zona a borrar
+    limpiar_buffer(); // limpia el buffer
+    
+    // prepara el comando DELETE
+    char query[100];
+    snprintf(query, sizeof(query), "DELETE FROM zona_observacion WHERE cod_zona = %d", cod_zona);
+    
+    // pide confirmación porque borrar es permanente
+    printf("¿esta seguro que desea eliminar esta zona? (s/n): ");
+    char confirmacion;
+    scanf("%c", &confirmacion);
+    limpiar_buffer();
+    
+    // solo borra si el usuario confirma con 's'
+    if (tolower(confirmacion) == 's') {
+        if (mysql_query(con, query)) {
+            finish_with_error();
+        }
+        printf("\nzona eliminada con exito\n");
+    } else {
+        printf("\noperacion cancelada\n");
+    }
+}
+
+// FUNCIONES PARA LOS GRUPOS DE AVES 
+void listar_grupos() {
+    // consulta para obtener todos los grupos ordenados por nombre
+    if (mysql_query(con, "SELECT idgrupo, nombre, carac_patas, carac_pico, carac_dedos FROM grupo ORDER BY nombre")) {
+        finish_with_error(); // si hay error, se termina
+    }
+
+    // guarda los resultados
+    MYSQL_RES *result = mysql_store_result(con);
+    if (result == NULL) {
+        finish_with_error(); // si no hay resultados, error
+    }
+
+    // muestra la lista de grupos formateada
+    printf("\nlistado de grupos de aves:\n");
+    mostrar_resultados(result);
+    mysql_free_result(result); // libera memoria
+}
+
+// crea un nuevo grupo de aves
+void crear_grupo() {
+    // variables para guardar los datos
+    char nombre[50], carac_patas[100], carac_pico[100], carac_dedos[100];
+    
+    printf("\nregistro de nuevo grupo de aves\n");
+    printf("nombre del grupo: ");
+    fgets(nombre, sizeof(nombre), stdin); // lee el nombre
+    nombre[strcspn(nombre, "\n")] = 0; // quita el enter
+    
+    printf("caracteristicas de patas: ");
+    fgets(carac_patas, sizeof(carac_patas), stdin); // lee patas
+    carac_patas[strcspn(carac_patas, "\n")] = 0;
+    
+    printf("caracteristicas de pico: ");
+    fgets(carac_pico, sizeof(carac_pico), stdin); // lee pico
+    carac_pico[strcspn(carac_pico, "\n")] = 0;
+    
+    printf("caracteristicas de dedos: ");
+    fgets(carac_dedos, sizeof(carac_dedos), stdin); // lee dedos
+    carac_dedos[strcspn(carac_dedos, "\n")] = 0;
+
+    // prepara el query para insertar
+    char query[512];
+    snprintf(query, sizeof(query),
+        "INSERT INTO grupo (nombre, carac_patas, carac_pico, carac_dedos) "
+        "VALUES('%s', '%s', '%s', '%s')",
+        nombre, carac_patas, carac_pico, carac_dedos);
+
+    // ejecuta el query
+    if (mysql_query(con, query)) {
+        finish_with_error(); // si falla, muestra error
+    }
+    
+    // muestra el id asignado
+    printf("\ngrupo registrado con exito. id: %ld\n", mysql_insert_id(con));
+}
+
+// actualiza un grupo existente
+void actualizar_grupo() {
+    listar_grupos(); // muestra los grupos
+    printf("\nid del grupo a actualizar: ");
+    int idgrupo;
+    scanf("%d", &idgrupo); // pide el id a modificar
+    limpiar_buffer(); // limpia el buffer
+    
+    // variables para los nuevos datos
+    char nombre[50], carac_patas[100], carac_pico[100], carac_dedos[100];
+    
+    // pide los nuevos datos (pueden dejarse vacíos)
+    printf("nuevo nombre (dejar vacio para no cambiar): ");
+    fgets(nombre, sizeof(nombre), stdin);
+    nombre[strcspn(nombre, "\n")] = 0;
+    
+    printf("nuevas caracteristicas de patas (dejar vacio para no cambiar): ");
+    fgets(carac_patas, sizeof(carac_patas), stdin);
+    carac_patas[strcspn(carac_patas, "\n")] = 0;
+    
+    printf("nuevas caracteristicas de pico (dejar vacio para no cambiar): ");
+    fgets(carac_pico, sizeof(carac_pico), stdin);
+    carac_pico[strcspn(carac_pico, "\n")] = 0;
+    
+    printf("nuevas caracteristicas de dedos (dejar vacio para no cambiar): ");
+    fgets(carac_dedos, sizeof(carac_dedos), stdin);
+    carac_dedos[strcspn(carac_dedos, "\n")] = 0;
+
+    // construye el query de actualización
+    char query[512] = "UPDATE grupo SET ";
+    int campos = 0; // cuenta los campos actualizados
+    
+    // si hay nuevo nombre, lo agrega
+    if (strlen(nombre) > 0) {
+        strcat(query, "nombre = '");
+        strcat(query, nombre);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // si hay nuevas patas, las agrega
+    if (strlen(carac_patas) > 0) {
+        if (campos > 0) strcat(query, ", "); // pone coma si ya hay algo
+        strcat(query, "carac_patas = '");
+        strcat(query, carac_patas);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // si hay nuevo pico, lo agrega
+    if (strlen(carac_pico) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "carac_pico = '");
+        strcat(query, carac_pico);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // si hay nuevos dedos, los agrega
+    if (strlen(carac_dedos) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "carac_dedos = '");
+        strcat(query, carac_dedos);
+        strcat(query, "'");
+    }
+    
+    // agrega la condición where
+    char where[50];
+    snprintf(where, sizeof(where), " WHERE idgrupo = %d", idgrupo);
+    strcat(query, where);
+
+    // ejecuta el query
+    if (mysql_query(con, query)) {
+        finish_with_error();
+    }
+    
+    printf("\ngrupo actualizado con exito\n");
+}
+
+// elimina un grupo
+void eliminar_grupo() {
+    listar_grupos(); // muestra los grupos
+    printf("\nid del grupo a eliminar: ");
+    int idgrupo;
+    scanf("%d", &idgrupo); // pide el id a borrar
+    limpiar_buffer(); // limpia el buffer
+    
+    // prepara el query para borrar
+    char query[100];
+    snprintf(query, sizeof(query), "DELETE FROM grupo WHERE idgrupo = %d", idgrupo);
+    
+    // pide confirmación porque es permanente
+    printf("¿esta seguro que desea eliminar este grupo? (s/n): ");
+    char confirmacion;
+    scanf("%c", &confirmacion);
+    limpiar_buffer();
+    
+    // solo borra si confirma con 's'
+    if (tolower(confirmacion) == 's') {
+        if (mysql_query(con, query)) {
+            finish_with_error();
+        }
+        printf("\ngrupo eliminado con exito\n");
+    } else {
+        printf("\noperacion cancelada\n");
+    }
+}
+//FUNCIONES PARA ESPECIE 
+void listar_especies() {
+    // Ejecuta consulta SQL para obtener especies con información de grupo
+    if (mysql_query(con, 
+        "SELECT e.idespecie, e.nombre_cientifico, e.nombre_vulgar, g.nombre as grupo "
+        "FROM especie e JOIN grupo g ON e.idgrupo = g.idgrupo "
+        "ORDER BY e.nombre_cientifico")) {
+        // Si hay error, termina el programa
+        finish_with_error();
+    }
+
+    // Obtiene resultados de la consulta
+    MYSQL_RES *result = mysql_store_result(con);
+    // Verifica si se obtuvieron resultados
+    if (result == NULL) {
+        finish_with_error();
+    }
+
+    // Muestra encabezado y resultados
+    printf("\nListado de especies:\n");
+    mostrar_resultados(result);
+    // Libera memoria de los resultados
+    mysql_free_result(result);
+}
+
+void crear_especie() {
+    // Variables para almacenar datos de la nueva especie
+    char nombre_cientifico[50], nombre_vulgar[50], descripcion[255];
+    int idgrupo;
+    
+    // Solicita datos al usuario
+    printf("\nRegistro de nueva especie\n");
+    printf("Nombre cientifico: ");
+    // Lee nombre científico
+    fgets(nombre_cientifico, sizeof(nombre_cientifico), stdin);
+    // Elimina salto de línea
+    nombre_cientifico[strcspn(nombre_cientifico, "\n")] = 0;
+    
+    printf("Nombre vulgar: ");
+    // Lee nombre vulgar
+    fgets(nombre_vulgar, sizeof(nombre_vulgar), stdin);
+    nombre_vulgar[strcspn(nombre_vulgar, "\n")] = 0;
+    
+    printf("Descripcion: ");
+    // Lee descripción
+    fgets(descripcion, sizeof(descripcion), stdin);
+    descripcion[strcspn(descripcion, "\n")] = 0;
+    
+    // Muestra grupos disponibles
+    listar_grupos();
+    printf("ID del grupo al que pertenece: ");
+    // Lee ID del grupo
+    scanf("%d", &idgrupo);
+    // Limpia buffer de entrada
+    limpiar_buffer();
+
+    // Prepara consulta SQL de inserción
+    char query[512];
+    snprintf(query, sizeof(query),
+        "INSERT INTO especie (nombre_cientifico, nombre_vulgar, descripcion, idgrupo) "
+        "VALUES('%s', '%s', '%s', %d)",
+        nombre_cientifico, nombre_vulgar, descripcion, idgrupo);
+
+    // Ejecuta consulta
+    if (mysql_query(con, query)) {
+        finish_with_error();
+    }
+    
+    // Muestra ID de la especie creada
+    printf("\nEspecie registrada con exito. ID: %ld\n", mysql_insert_id(con));
+}
+
+void actualizar_especie() {
+    // Muestra lista de especies
+    listar_especies();
+    printf("\nID de la especie a actualizar: ");
+    // Lee ID de especie a modificar
+    int idespecie;
+    scanf("%d", &idespecie);
+    limpiar_buffer();
+    
+    // Variables para nuevos datos
+    char nombre_cientifico[50], nombre_vulgar[50], descripcion[255];
+    int idgrupo = -1;
+    
+    // Solicita nuevos datos (opcionales)
+    printf("Nuevo nombre cientifico (dejar vacio para no cambiar): ");
+    fgets(nombre_cientifico, sizeof(nombre_cientifico), stdin);
+    nombre_cientifico[strcspn(nombre_cientifico, "\n")] = 0;
+    
+    printf("Nuevo nombre vulgar (dejar vacio para no cambiar): ");
+    fgets(nombre_vulgar, sizeof(nombre_vulgar), stdin);
+    nombre_vulgar[strcspn(nombre_vulgar, "\n")] = 0;
+    
+    printf("Nueva descripcion (dejar vacio para no cambiar): ");
+    fgets(descripcion, sizeof(descripcion), stdin);
+    descripcion[strcspn(descripcion, "\n")] = 0;
+    
+    // Pregunta si desea cambiar grupo
+    printf("¿Desea cambiar el grupo? (s/n): ");
+    char cambiar_grupo;
+    scanf("%c", &cambiar_grupo);
+    limpiar_buffer();
+    
+    // Si desea cambiar grupo, solicita nuevo ID
+    if (tolower(cambiar_grupo) == 's') {
+        listar_grupos();
+        printf("Nuevo ID del grupo: ");
+        scanf("%d", &idgrupo);
+        limpiar_buffer();
+    }
+
+    // Construye consulta SQL de actualización
+    char query[512] = "UPDATE especie SET ";
+    int campos = 0;
+    
+    // Agrega campos a actualizar si tienen valor
+    if (strlen(nombre_cientifico) > 0) {
+        strcat(query, "nombre_cientifico = '");
+        strcat(query, nombre_cientifico);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    if (strlen(nombre_vulgar) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "nombre_vulgar = '");
+        strcat(query, nombre_vulgar);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    if (strlen(descripcion) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "descripcion = '");
+        strcat(query, descripcion);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    if (idgrupo != -1) {
+        if (campos > 0) strcat(query, ", ");
+        char idgrupo_str[10];
+        snprintf(idgrupo_str, sizeof(idgrupo_str), "%d", idgrupo);
+        strcat(query, "idgrupo = ");
+        strcat(query, idgrupo_str);
+    }
+    
+    // Agrega condición WHERE
+    char where[50];
+    snprintf(where, sizeof(where), " WHERE idespecie = %d", idespecie);
+    strcat(query, where);
+
+    // Ejecuta consulta
+    if (mysql_query(con, query)) {
+        finish_with_error();
+    }
+    
+    // Mensaje de éxito
+    printf("\nEspecie actualizada con exito\n");
+}
+
+void eliminar_especie() {
+    // Muestra lista de especies
+    listar_especies();
+    printf("\nID de la especie a eliminar: ");
+    // Lee ID de especie a eliminar
+    int idespecie;
+    scanf("%d", &idespecie);
+    limpiar_buffer();
+    
+    // Prepara consulta SQL de eliminación
+    char query[100];
+    snprintf(query, sizeof(query), "DELETE FROM especie WHERE idespecie = %d", idespecie);
+    
+    // Solicita confirmación
+    printf("¿Está seguro que desea eliminar esta especie? (s/n): ");
+    char confirmacion;
+    scanf("%c", &confirmacion);
+    limpiar_buffer();
+    
+    // Si confirma, ejecuta eliminación
+    if (tolower(confirmacion) == 's') {
+        if (mysql_query(con, query)) {
+            finish_with_error();
+        }
+        printf("\nEspecie eliminada con exito\n");
+    } else {
+        // Si cancela, muestra mensaje
+        printf("\nOperacion cancelada\n");
+    }
+}
+// FUNCIONES PARA OBSERVADOR 
+
+// Función para listar todos los observadores registrados
+void listar_observadores() {
+    // Consulta SQL para obtener datos de observadores y sus asociaciones
+    if (mysql_query(con, 
+        "SELECT o.cod_observador, o.nombre, o.apaterno, o.amaterno, o.dni, a.nombre as asociacion "
+        "FROM observador o JOIN asociacion a ON o.idasociacion = a.idasociacion "
+        "ORDER BY o.apaterno, o.amaterno, o.nombre")) {
+        // Manejo de error si falla la consulta
+        finish_with_error();
+    }
+
+    // Almacena el resultado de la consulta
+    MYSQL_RES *result = mysql_store_result(con);
+    // Verifica si se obtuvieron resultados
+    if (result == NULL) {
+        finish_with_error();
+    }
+
+    // Muestra el encabezado y los resultados
+    printf("\nListado de observadores:\n");
+    mostrar_resultados(result);
+    // Libera la memoria usada por los resultados
+    mysql_free_result(result);
+}
+
+// Función para registrar un nuevo observador
+void crear_observador() {
+    // Variables para almacenar los datos del observador
+    char nombre[50], apaterno[50], amaterno[50], dni[20], direccion[100];
+    int idasociacion, cod_zona;
+    
+    // Solicita los datos al usuario
+    printf("\nRegistro de nuevo observador\n");
+    printf("Nombre: ");
+    // Lee el nombre del observador
+    fgets(nombre, sizeof(nombre), stdin);
+    // Elimina el salto de línea
+    nombre[strcspn(nombre, "\n")] = 0;
+    
+    printf("Apellido paterno: ");
+    // Lee el apellido paterno
+    fgets(apaterno, sizeof(apaterno), stdin);
+    apaterno[strcspn(apaterno, "\n")] = 0;
+    
+    printf("Apellido materno: ");
+    // Lee el apellido materno
+    fgets(amaterno, sizeof(amaterno), stdin);
+    amaterno[strcspn(amaterno, "\n")] = 0;
+    
+    printf("DNI: ");
+    // Lee el número de DNI
+    fgets(dni, sizeof(dni), stdin);
+    dni[strcspn(dni, "\n")] = 0;
+    
+    printf("Direccion: ");
+    // Lee la dirección
+    fgets(direccion, sizeof(direccion), stdin);
+    direccion[strcspn(direccion, "\n")] = 0;
+    
+    // Muestra lista de asociaciones disponibles
+    listar_asociaciones();
+    printf("ID de la asociacion: ");
+    // Lee el ID de asociación
+    scanf("%d", &idasociacion);
+    // Limpia el buffer de entrada
+    limpiar_buffer();
+    
+    // Muestra lista de zonas disponibles
+    listar_zonas();
+    printf("Codigo de zona de observacion: ");
+    // Lee el código de zona
+    scanf("%d", &cod_zona);
+    limpiar_buffer();
+
+    // Prepara la consulta SQL de inserción
+    char query[512];
+    snprintf(query, sizeof(query),
+        "INSERT INTO observador (nombre, apaterno, amaterno, dni, direccion, idasociacion, zona_cod_zona) "
+        "VALUES('%s', '%s', '%s', '%s', '%s', %d, %d)",
+        nombre, apaterno, amaterno, dni, direccion, idasociacion, cod_zona);
+
+    // Ejecuta la consulta
+    if (mysql_query(con, query)) {
+        finish_with_error();
+    }
+    
+    // Muestra el código asignado al nuevo observador
+    printf("\nObservador registrado con exito. Codigo: %ld\n", mysql_insert_id(con));
+}
+
+// Función para actualizar datos de un observador existente
+void actualizar_observador() {
+    // Muestra lista de observadores
+    listar_observadores();
+    printf("\nCodigo del observador a actualizar: ");
+    // Lee el código del observador a modificar
+    int cod_observador;
+    scanf("%d", &cod_observador);
+    limpiar_buffer();
+    
+    // Variables para los nuevos datos
+    char nombre[50], apaterno[50], amaterno[50], dni[20], direccion[100];
+    int idasociacion = -1, cod_zona = -1;
+    
+    // Solicita nuevos datos (opcionales)
+    printf("Nuevo nombre (dejar vacio para no cambiar): ");
+    fgets(nombre, sizeof(nombre), stdin);
+    nombre[strcspn(nombre, "\n")] = 0;
+    
+    printf("Nuevo apellido paterno (dejar vacio para no cambiar): ");
+    fgets(apaterno, sizeof(apaterno), stdin);
+    apaterno[strcspn(apaterno, "\n")] = 0;
+    
+    printf("Nuevo apellido materno (dejar vacio para no cambiar): ");
+    fgets(amaterno, sizeof(amaterno), stdin);
+    amaterno[strcspn(amaterno, "\n")] = 0;
+    
+    printf("Nuevo DNI (dejar vacio para no cambiar): ");
+    fgets(dni, sizeof(dni), stdin);
+    dni[strcspn(dni, "\n")] = 0;
+    
+    printf("Nueva direccion (dejar vacio para no cambiar): ");
+    fgets(direccion, sizeof(direccion), stdin);
+    direccion[strcspn(direccion, "\n")] = 0;
+    
+    // Pregunta si desea cambiar la asociación
+    printf("¿Desea cambiar la asociacion? (s/n): ");
+    char cambiar_asociacion;
+    scanf("%c", &cambiar_asociacion);
+    limpiar_buffer();
+    
+    // Si desea cambiar asociación, solicita nuevo ID
+    if (tolower(cambiar_asociacion) == 's') {
+        listar_asociaciones();
+        printf("Nuevo ID de asociacion: ");
+        scanf("%d", &idasociacion);
+        limpiar_buffer();
+    }
+    
+    // Pregunta si desea cambiar la zona
+    printf("¿Desea cambiar la zona de observacion? (s/n): ");
+    char cambiar_zona;
+    scanf("%c", &cambiar_zona);
+    limpiar_buffer();
+    
+    // Si desea cambiar zona, solicita nuevo código
+    if (tolower(cambiar_zona) == 's') {
+        listar_zonas();
+        printf("Nuevo codigo de zona: ");
+        scanf("%d", &cod_zona);
+        limpiar_buffer();
+    }
+
+    // Construye la consulta SQL de actualización
+    char query[512] = "UPDATE observador SET ";
+    int campos = 0;
+    
+    // Agrega campo nombre si se especificó
+    if (strlen(nombre) > 0) {
+        strcat(query, "nombre = '");
+        strcat(query, nombre);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // Agrega campo apellido paterno si se especificó
+    if (strlen(apaterno) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "apaterno = '");
+        strcat(query, apaterno);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // Agrega campo apellido materno si se especificó
+    if (strlen(amaterno) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "amaterno = '");
+        strcat(query, amaterno);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // Agrega campo DNI si se especificó
+    if (strlen(dni) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "dni = '");
+        strcat(query, dni);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // Agrega campo dirección si se especificó
+    if (strlen(direccion) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "direccion = '");
+        strcat(query, direccion);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // Agrega campo asociación si se especificó
+    if (idasociacion != -1) {
+        if (campos > 0) strcat(query, ", ");
+        char idasociacion_str[10];
+        snprintf(idasociacion_str, sizeof(idasociacion_str), "%d", idasociacion);
+        strcat(query, "idasociacion = ");
+        strcat(query, idasociacion_str);
+        campos++;
+    }
+    
+    // Agrega campo zona si se especificó
+    if (cod_zona != -1) {
+        if (campos > 0) strcat(query, ", ");
+        char cod_zona_str[10];
+        snprintf(cod_zona_str, sizeof(cod_zona_str), "%d", cod_zona);
+        strcat(query, "zona_cod_zona = ");
+        strcat(query, cod_zona_str);
+    }
+    
+    // Agrega condición WHERE para identificar el observador
+    char where[50];
+    snprintf(where, sizeof(where), " WHERE cod_observador = %d", cod_observador);
+    strcat(query, where);
+
+    // Ejecuta la consulta de actualización
+    if (mysql_query(con, query)) {
+        finish_with_error();
+    }
+    
+    // Confirma la actualización exitosa
+    printf("\nObservador actualizado con exito\n");
+}
+
+// Función para eliminar un observador
+void eliminar_observador() {
+    // Muestra lista de observadores
+    listar_observadores();
+    printf("\nCodigo del observador a eliminar: ");
+    // Lee el código del observador a eliminar
+    int cod_observador;
+    scanf("%d", &cod_observador);
+    limpiar_buffer();
+    
+    // Prepara la consulta SQL de eliminación
+    char query[100];
+    snprintf(query, sizeof(query), "DELETE FROM observador WHERE cod_observador = %d", cod_observador);
+    
+    // Solicita confirmación
+    printf("¿Está seguro que desea eliminar este observador? (s/n): ");
+    char confirmacion;
+    scanf("%c", &confirmacion);
+    limpiar_buffer();
+    
+    // Si confirma, ejecuta la eliminación
+    if (tolower(confirmacion) == 's') {
+        if (mysql_query(con, query)) {
+            finish_with_error();
+        }
+        printf("\nObservador eliminado con exito\n");
+    } else {
+        // Si cancela, muestra mensaje
+        printf("\nOperacion cancelada\n");
+    }
+}
+// FUNCIONES PARA OBSERVACION 
+
+// Función para listar todas las observaciones registradas
+void listar_observaciones() {
+    // Consulta SQL para obtener datos de observaciones con información de observador y especie
+    if (mysql_query(con, 
+        "SELECT o.idobservacion, CONCAT(ob.nombre, ' ', ob.apaterno) as observador, "
+        "e.nombre_cientifico as especie, o.fecha, o.comentarios "
+        "FROM observacion o "
+        "JOIN observador ob ON o.cod_observador = ob.cod_observador "
+        "JOIN especie e ON o.idespecie = e.idespecie "
+        "ORDER BY o.fecha DESC")) {
+        // Manejo de error si falla la consulta
+        finish_with_error();
+    }
+
+    // Almacena el resultado de la consulta
+    MYSQL_RES *result = mysql_store_result(con);
+    // Verifica si se obtuvieron resultados
+    if (result == NULL) {
+        finish_with_error();
+    }
+
+    // Muestra el encabezado y los resultados
+    printf("\nListado de observaciones:\n");
+    mostrar_resultados(result);
+    // Libera la memoria usada por los resultados
+    mysql_free_result(result);
+}
+
+// Función para registrar una nueva observación
+void crear_observacion() {
+    // Variables para almacenar los datos de la observación
+    int cod_observador, idespecie;
+    char fecha[11], comentarios[255];
+    
+    // Solicita los datos al usuario
+    printf("\nRegistro de nueva observacion\n");
+    // Muestra lista de observadores disponibles
+    listar_observadores();
+    printf("Codigo del observador: ");
+    // Lee el código del observador
+    scanf("%d", &cod_observador);
+    // Limpia el buffer de entrada
+    limpiar_buffer();
+    
+    // Muestra lista de especies disponibles
+    listar_especies();
+    printf("ID de la especie observada: ");
+    // Lee el ID de la especie
+    scanf("%d", &idespecie);
+    limpiar_buffer();
+    
+    // Solicita la fecha de observación
+    printf("Fecha de observacion (YYYY-MM-DD): ");
+    // Lee la fecha
+    fgets(fecha, sizeof(fecha), stdin);
+    // Elimina el salto de línea
+    fecha[strcspn(fecha, "\n")] = 0;
+    
+    // Solicita comentarios (opcional)
+    printf("Comentarios (opcional): ");
+    // Lee los comentarios
+    fgets(comentarios, sizeof(comentarios), stdin);
+    comentarios[strcspn(comentarios, "\n")] = 0;
+
+    // Prepara la consulta SQL de inserción
+    char query[512];
+    // Verifica si hay comentarios para incluirlos en la consulta
+    if (strlen(comentarios) > 0) {
+        snprintf(query, sizeof(query),
+            "INSERT INTO observacion (cod_observador, idespecie, fecha, comentarios) "
+            "VALUES(%d, %d, '%s', '%s')",
+            cod_observador, idespecie, fecha, comentarios);
+    } else {
+        // Consulta sin comentarios
+        snprintf(query, sizeof(query),
+            "INSERT INTO observacion (cod_observador, idespecie, fecha) "
+            "VALUES(%d, %d, '%s')",
+            cod_observador, idespecie, fecha);
+    }
+
+    // Ejecuta la consulta
+    if (mysql_query(con, query)) {
+        finish_with_error();
+    }
+    
+    // Muestra el ID asignado a la nueva observación
+    printf("\nObservacion registrada con exito. ID: %ld\n", mysql_insert_id(con));
+}
+
+// Función para actualizar una observación existente
+void actualizar_observacion() {
+    // Muestra lista de observaciones
+    listar_observaciones();
+    printf("\nID de la observacion a actualizar: ");
+    // Lee el ID de la observación a modificar
+    int idobservacion;
+    scanf("%d", &idobservacion);
+    limpiar_buffer();
+    
+    // Variables para los nuevos datos (con valores por defecto)
+    int cod_observador = -1, idespecie = -1;
+    char fecha[11] = "", comentarios[255] = "";
+    
+    // Pregunta si desea cambiar el observador
+    printf("¿Desea cambiar el observador? (s/n): ");
+    char cambiar_observador;
+    scanf("%c", &cambiar_observador);
+    limpiar_buffer();
+    
+    // Si desea cambiar observador, solicita nuevo código
+    if (tolower(cambiar_observador) == 's') {
+        listar_observadores();
+        printf("Nuevo codigo de observador: ");
+        scanf("%d", &cod_observador);
+        limpiar_buffer();
+    }
+    
+    // Pregunta si desea cambiar la especie
+    printf("¿Desea cambiar la especie? (s/n): ");
+    char cambiar_especie;
+    scanf("%c", &cambiar_especie);
+    limpiar_buffer();
+    
+    // Si desea cambiar especie, solicita nuevo ID
+    if (tolower(cambiar_especie) == 's') {
+        listar_especies();
+        printf("Nuevo ID de especie: ");
+        scanf("%d", &idespecie);
+        limpiar_buffer();
+    }
+    
+    // Solicita nueva fecha (opcional)
+    printf("Nueva fecha (dejar vacio para no cambiar, formato YYYY-MM-DD): ");
+    fgets(fecha, sizeof(fecha), stdin);
+    fecha[strcspn(fecha, "\n")] = 0;
+    
+    // Solicita nuevos comentarios (opcional)
+    printf("Nuevos comentarios (dejar vacio para no cambiar): ");
+    fgets(comentarios, sizeof(comentarios), stdin);
+    comentarios[strcspn(comentarios, "\n")] = 0;
+
+    // Construye la consulta SQL de actualización
+    char query[512] = "UPDATE observacion SET ";
+    int campos = 0;
+    
+    // Agrega campo observador si se especificó
+    if (cod_observador != -1) {
+        char cod_observador_str[10];
+        snprintf(cod_observador_str, sizeof(cod_observador_str), "%d", cod_observador);
+        strcat(query, "cod_observador = ");
+        strcat(query, cod_observador_str);
+        campos++;
+    }
+    
+    // Agrega campo especie si se especificó
+    if (idespecie != -1) {
+        if (campos > 0) strcat(query, ", ");
+        char idespecie_str[10];
+        snprintf(idespecie_str, sizeof(idespecie_str), "%d", idespecie);
+        strcat(query, "idespecie = ");
+        strcat(query, idespecie_str);
+        campos++;
+    }
+    // Agrega campo fecha si se especificó
+    if (strlen(fecha) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "fecha = '");
+        strcat(query, fecha);
+        strcat(query, "'");
+        campos++;
+    }
+    
+    // Agrega campo comentarios si se especificó
+    if (strlen(comentarios) > 0) {
+        if (campos > 0) strcat(query, ", ");
+        strcat(query, "comentarios = '");
+        strcat(query, comentarios);
+        strcat(query, "'");
+    }
+    
+    // Agrega condición WHERE para identificar la observación
+    char where[50];
+    snprintf(where, sizeof(where), " WHERE idobservacion = %d", idobservacion);
+    strcat(query, where);
+    // Ejecuta la consulta de actualización
+    if (mysql_query(con, query)) {
+        finish_with_error();
+    }
+    // Confirma la actualización exitosa
+    printf("\nObservacion actualizada con exito\n");
+}
+
+// Función para eliminar una observación
+void eliminar_observacion() {
+    // Muestra lista de observaciones
+    listar_observaciones();
+    printf("\nID de la observacion a eliminar: ");
+    // Lee el ID de la observación a eliminar
+    int idobservacion;
+    scanf("%d", &idobservacion);
+    limpiar_buffer();
+    
+    // Prepara la consulta SQL de eliminación
+    char query[100];
+    snprintf(query, sizeof(query), "DELETE FROM observacion WHERE idobservacion = %d", idobservacion);
+    
+    // Solicita confirmación
+    printf("¿Está seguro que desea eliminar esta observacion? (s/n): ");
+    char confirmacion;
+    scanf("%c", &confirmacion);
+    limpiar_buffer();
+    
+    // Si confirma, ejecuta la eliminación
+    if (tolower(confirmacion) == 's') {
+        if (mysql_query(con, query)) {
+            finish_with_error();
+        }
+        printf("\nObservacion eliminada con exito\n");
+    } else {
+        // Si cancela, muestra mensaje
+        printf("\nOperacion cancelada\n");
+    }
+}
+// MENUS DE TABLAS 
+// Comentario que indica el inicio de la sección de menús
+void menu_tabla(const char *nombre_tabla) {  // Función que muestra el menú para una tabla específica
+    int opcion;  // Variable para almacenar la opción seleccionada por el usuario
+    
+    do {  // Inicia un bucle do-while para mostrar el menú repetidamente
+        printf("\nMENU %s\n", nombre_tabla);  // Muestra el título del menú con el nombre de la tabla
+        printf("1. Listar\n");  // Opción 1: Listar registros
+        printf("2. Crear\n");   // Opción 2: Crear nuevo registro
+        printf("3. Actualizar\n");  // Opción 3: Modificar registro existente
+        printf("4. Eliminar\n");    // Opción 4: Borrar registro
+        printf("5. Volver al menu principal\n");  // Opción 5: Regresar al menú anterior
+        printf("Seleccione una opcion: ");  // Solicita al usuario que elija una opción
+        scanf("%d", &opcion);  // Lee la opción ingresada por el usuario
+        limpiar_buffer();  // Limpia el buffer de entrada para evitar problemas
+
+        switch (opcion) {  // Evalúa la opción seleccionada
+            case 1:  // Si eligió listar
+                if (strcmp(nombre_tabla, "ASOCIACION") == 0) listar_asociaciones();  // Lista asociaciones si es el menú de asociaciones
+                else if (strcmp(nombre_tabla, "ZONA_OBSERVACION") == 0) listar_zonas();  // Lista zonas si es el menú de zonas
+                else if (strcmp(nombre_tabla, "GRUPO") == 0) listar_grupos();  // Lista grupos si es el menú de grupos
+                else if (strcmp(nombre_tabla, "ESPECIE") == 0) listar_especies();  // Lista especies si es el menú de especies
+                else if (strcmp(nombre_tabla, "OBSERVADOR") == 0) listar_observadores();  // Lista observadores si es el menú de observadores
+                else if (strcmp(nombre_tabla, "OBSERVACION") == 0) listar_observaciones();  // Lista observaciones si es el menú de observaciones
+                break;  // Sale del switch
+                
+            case 2:  // Si eligió crear
+                if (strcmp(nombre_tabla, "ASOCIACION") == 0) crear_asociacion();  // Crea asociación
+                else if (strcmp(nombre_tabla, "ZONA_OBSERVACION") == 0) crear_zona();  // Crea zona
+                else if (strcmp(nombre_tabla, "GRUPO") == 0) crear_grupo();  // Crea grupo
+                else if (strcmp(nombre_tabla, "ESPECIE") == 0) crear_especie();  // Crea especie
+                else if (strcmp(nombre_tabla, "OBSERVADOR") == 0) crear_observador();  // Crea observador
+                else if (strcmp(nombre_tabla, "OBSERVACION") == 0) crear_observacion();  // Crea observación
+                break;  // Sale del switch
+                
+            case 3:  // Si eligió actualizar
+                if (strcmp(nombre_tabla, "ASOCIACION") == 0) actualizar_asociacion();  // Actualiza asociación
+                else if (strcmp(nombre_tabla, "ZONA_OBSERVACION") == 0) actualizar_zona();  // Actualiza zona
+                else if (strcmp(nombre_tabla, "GRUPO") == 0) actualizar_grupo();  // Actualiza grupo
+                else if (strcmp(nombre_tabla, "ESPECIE") == 0) actualizar_especie();  // Actualiza especie
+                else if (strcmp(nombre_tabla, "OBSERVADOR") == 0) actualizar_observador();  // Actualiza observador
+                else if (strcmp(nombre_tabla, "OBSERVACION") == 0) actualizar_observacion();  // Actualiza observación
+                break;  // Sale del switch
+                
+            case 4:  // Si eligió eliminar
+                if (strcmp(nombre_tabla, "ASOCIACION") == 0) eliminar_asociacion();  // Elimina asociación
+                else if (strcmp(nombre_tabla, "ZONA_OBSERVACION") == 0) eliminar_zona();  // Elimina zona
+                else if (strcmp(nombre_tabla, "GRUPO") == 0) eliminar_grupo();  // Elimina grupo
+                else if (strcmp(nombre_tabla, "ESPECIE") == 0) eliminar_especie();  // Elimina especie
+                else if (strcmp(nombre_tabla, "OBSERVADOR") == 0) eliminar_observador();  // Elimina observador
+                else if (strcmp(nombre_tabla, "OBSERVACION") == 0) eliminar_observacion();  // Elimina observación
+                break;  // Sale del switch
+                
+            case 5:  // Si eligió volver
+                printf("Volviendo al menu principal...\n");  // Muestra mensaje de retorno
+                break;  // Sale del switch
+                
+            default:  // Si ingresó una opción no válida
+                printf("\nOpcion no valida. Intente de nuevo.\n");  // Muestra mensaje de error
+        }
+        
+        if (opcion != 5) {  // Si no eligió volver al menú principal
+            printf("\nPresione Enter para continuar...");  // Pide confirmación para continuar
+            limpiar_buffer();  // Limpia el buffer de entrada
+        }
+    } while (opcion != 5);  // Repite el menú mientras no se elija la opción de volver
+}
+
+// MENU PRINCIPAL 
+// Comentario que indica el menú principal
+int main() {  // Función principal del programa
+    conectar();  // Establece conexión con la base de datos
+
+    int opcion;  // Variable para almacenar la opción del menú principal
+    do {  // Inicia bucle del menú principal
+        printf("\nSISTEMA DE OBSERVACION DE AVES - MENU PRINCIPAL\n");  // Título del sistema
+        printf("1. Gestion de Asociaciones\n");  // Opción 1: Menú de asociaciones
+        printf("2. Gestion de Zonas de Observacion\n");  // Opción 2: Menú de zonas
+        printf("3. Gestion de Grupos de Aves\n");  // Opción 3: Menú de grupos
+        printf("4. Gestion de Especies\n");  // Opción 4: Menú de especies
+        printf("5. Gestion de Observadores\n");  // Opción 5: Menú de observadores
+        printf("6. Gestion de Observaciones\n");  // Opción 6: Menú de observaciones
+        printf("7. Salir\n");  // Opción 7: Salir del sistema
+        printf("Seleccione una opcion: ");  // Solicita selección al usuario
+        scanf("%d", &opcion);  // Lee la opción ingresada
+        limpiar_buffer();  // Limpia el buffer de entrada
+
+        switch (opcion) {  // Evalúa la opción seleccionada
+            case 1:  // Si eligió gestión de asociaciones
+                menu_tabla("ASOCIACION");  // Llama al menú de asociaciones
+                break;  // Sale del switch
+            case 2:  // Si eligió gestión de zonas
+                menu_tabla("ZONA_OBSERVACION");  // Llama al menú de zonas
+                break;  // Sale del switch
+            case 3:  // Si eligió gestión de grupos
+                menu_tabla("GRUPO");  // Llama al menú de grupos
+                break;  // Sale del switch
+            case 4:  // Si eligió gestión de especies
+                menu_tabla("ESPECIE");  // Llama al menú de especies
+                break;  // Sale del switch
+            case 5:  // Si eligió gestión de observadores
+                menu_tabla("OBSERVADOR");  // Llama al menú de observadores
+                break;  // Sale del switch
+            case 6:  // Si eligió gestión de observaciones
+                menu_tabla("OBSERVACION");  // Llama al menú de observaciones
+                break;  // Sale del switch
+            case 7:  // Si eligió salir
+                printf("\nHasta luego!\n");  // Mensaje de despedida
+                break;  // Sale del switch
+            default:  // Si ingresó opción no válida
+                printf("\nOpcion no valida. Intente de nuevo.\n");  // Mensaje de error
+        }     
+        if (opcion != 7) {  // Si no eligió salir
+            printf("\nPresione Enter para continuar...");  // Pide confirmación para continuar
+            limpiar_buffer();  // Limpia el buffer de entrada
+        }
+    } while (opcion != 7);  // Repite mientras no se elija salir
+
+    mysql_close(con);  // Cierra la conexión con la base de datos
+    return 0;  // Retorna 0 indicando ejecución exitosa
+}
