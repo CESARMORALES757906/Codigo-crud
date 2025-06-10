@@ -1,0 +1,241 @@
+script lenguaje MYSQl (ayudados con la herramienta export dentro de workbench)
+
+SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0;
+SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0;
+SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
+
+CREATE SCHEMA IF NOT EXISTS `observacion_aves` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_spanish_ci;
+USE `observacion_aves` ;
+
+
+CREATE TABLE IF NOT EXISTS `observacion_aves`.`asociacion` (
+  `idasociacion` INT NOT NULL AUTO_INCREMENT,
+  `nombre` VARCHAR(45) NOT NULL,
+  `telefono` VARCHAR(15) NULL,
+  `direccion` VARCHAR(100) NULL,
+  PRIMARY KEY (`idasociacion`))
+ENGINE = InnoDB;
+
+
+CREATE TABLE IF NOT EXISTS `observacion_aves`.`zona_observacion` (
+  `cod_zona` INT NOT NULL AUTO_INCREMENT,
+  `nombre` VARCHAR(45) NOT NULL,
+  `provincia` VARCHAR(45) NOT NULL,
+  `tipo` VARCHAR(25) NOT NULL,
+  `comunidad_autonoma` VARCHAR(45) NULL,
+  PRIMARY KEY (`cod_zona`))
+ENGINE = InnoDB;
+
+
+CREATE TABLE IF NOT EXISTS `observacion_aves`.`grupo` (
+  `idgrupo` INT NOT NULL AUTO_INCREMENT,
+  `carac_patas` VARCHAR(100) NOT NULL,
+  `carac_pico` VARCHAR(100) NOT NULL,
+  `carac_dedos` VARCHAR(100) NOT NULL,
+  `nombre` VARCHAR(45) NOT NULL,
+  PRIMARY KEY (`idgrupo`))
+ENGINE = InnoDB;
+
+DROP TABLE IF EXISTS `observacion_aves`.`especie` ;
+
+CREATE TABLE IF NOT EXISTS `observacion_aves`.`especie` (
+  `idespecie` INT NOT NULL AUTO_INCREMENT,
+  `nombre_cientifico` VARCHAR(45) NOT NULL,
+  `nombre_vulgar` VARCHAR(45) NULL,
+  `descripcion` VARCHAR(255) NULL,
+  `idgrupo` INT NOT NULL,
+  PRIMARY KEY (`idespecie`),
+  CONSTRAINT `fk_especie_grupo`
+    FOREIGN KEY (`idgrupo`)
+    REFERENCES `observacion_aves`.`grupo` (`idgrupo`)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE)
+ENGINE = InnoDB;
+
+CREATE INDEX `fk_especie_grupo_idx` ON `observacion_aves`.`especie` (`idgrupo` ASC) VISIBLE;
+
+DROP TABLE IF EXISTS `observacion_aves`.`observador` ;
+
+CREATE TABLE IF NOT EXISTS `observacion_aves`.`observador` (
+  `cod_observador` INT NOT NULL AUTO_INCREMENT,
+  `nombre` VARCHAR(45) NOT NULL,
+  `amaterno` VARCHAR(45) NULL,
+  `apaterno` VARCHAR(45) NULL,
+  `dni` VARCHAR(20) NOT NULL,
+  `direccion` VARCHAR(100) NOT NULL,
+  `idasociacion` INT NOT NULL,
+  `zona_cod_zona` INT NOT NULL,
+  PRIMARY KEY (`cod_observador`),
+  CONSTRAINT `fk_observador_asociacion`
+    FOREIGN KEY (`idasociacion`)
+    REFERENCES `observacion_aves`.`asociacion` (`idasociacion`)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE,
+  CONSTRAINT `fk_observador_zona_observacion`
+    FOREIGN KEY (`zona_cod_zona`)
+    REFERENCES `observacion_aves`.`zona_observacion` (`cod_zona`)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE)
+ENGINE = InnoDB;
+
+CREATE INDEX `fk_observador_asociacion_idx` ON `observacion_aves`.`observador` (`idasociacion` ASC) VISIBLE;
+CREATE INDEX `fk_observador_zona_observacion_idx` ON `observacion_aves`.`observador` (`zona_cod_zona` ASC) VISIBLE;
+CREATE UNIQUE INDEX `dni_UNIQUE` ON `observacion_aves`.`observador` (`dni` ASC) VISIBLE;
+
+DROP TABLE IF EXISTS `observacion_aves`.`observacion` ;
+
+CREATE TABLE IF NOT EXISTS `observacion_aves`.`observacion` (
+  `idobservacion` INT NOT NULL AUTO_INCREMENT,
+  `cod_observador` INT NOT NULL,
+  `idespecie` INT NOT NULL,
+  `fecha` DATE NOT NULL,
+  `comentarios` TEXT NULL,
+  PRIMARY KEY (`idobservacion`),
+  CONSTRAINT `fk_observacion_observador`
+    FOREIGN KEY (`cod_observador`)
+    REFERENCES `observacion_aves`.`observador` (`cod_observador`)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE,
+  CONSTRAINT `fk_observacion_especie`
+    FOREIGN KEY (`idespecie`)
+    REFERENCES `observacion_aves`.`especie` (`idespecie`)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE)
+ENGINE = InnoDB;
+
+CREATE INDEX `fk_observacion_observador_idx` ON `observacion_aves`.`observacion` (`cod_observador` ASC) VISIBLE;
+CREATE INDEX `fk_observacion_especie_idx` ON `observacion_aves`.`observacion` (`idespecie` ASC) VISIBLE;
+CREATE INDEX `idx_fecha` ON `observacion_aves`.`observacion` (`fecha` ASC) VISIBLE;
+
+
+SET SQL_MODE=@OLD_SQL_MODE;
+SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;
+SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS;
+Inserción de datos:
+INSERT INTO asociacion (nombre, telefono, direccion) VALUES
+('Asociación Ornitológica de México', '5551234567', 'Av. Insurgentes Sur 123, CDMX'),
+('Observadores de Aves del Bajío', '4779876543', 'Calle Hidalgo 45, Guanajuato'),
+('Club de Aves del Sureste', '9998765432', 'Calle 60 x 41, Mérida, Yucatán'),
+('Sociedad Ornitológica de Jalisco', '3334567890', 'Av. Vallarta 2563, Guadalajara'),
+('Aves de Michoacán', '4432109876', 'Calle Zaragoza 78, Morelia'),
+('Observadores del Norte', '8187654321', 'Blvd. Constitución 345, Monterrey'),
+('Club de Pajareros de Veracruz', '2298765432', 'Boca del Río, Veracruz'),
+('Asociación de Aves de Chiapas', '9612345678', 'Calle Central 12, Tuxtla Gutiérrez'),
+('Ornitólogos de Oaxaca', '9512345678', 'Macedonio Alcalá 203, Oaxaca'),
+('Aves del Desierto', '6561234567', 'Av. Juárez 456, Chihuahua'),
+('Aves de Tabasco', '9931234567', 'Calle Reforma 45, Villahermosa, Tabasco'),
+('Club de Observadores de Querétaro', '4422345678', 'Av. Zaragoza 123, Querétaro'),
+('Pajareros del Altiplano', '7711237890', 'Calle del Sol 89, Pachuca, Hidalgo'),
+('Asociación de Aves del Pacífico', '7533456789', 'Calle Marítima 66, Lázaro Cárdenas, Michoacán'),
+('Observadores del Valle', '8448761234', 'Av. Universidad 200, Saltillo, Coahuila'),
+('Aves y Naturaleza de Colima', '3124567890', 'Av. Niños Héroes 90, Colima'),
+('Sociedad Ornitológica de Tlaxcala', '2469876543', 'Calle Real 67, Tlaxcala'),
+('Observadores del Itsmo', '9718761234', 'Calle 20, Juchitán de Zaragoza, Oaxaca'),
+('Aves del Noreste', '8671234321', 'Blvd. Morelos 100, Nuevo Laredo, Tamaulipas'),
+('Asociación Sonorense de Aves', '6624560987', 'Calle Kino 321, Hermosillo, Sonora');
+
+INSERT INTO zona_observacion (nombre, provincia, tipo, comunidad_autonoma) VALUES
+('Bosque de Chapultepec', 'Ciudad de México', 'Urbano', 'CDMX'),
+('Reserva de la Biosfera Mariposa Monarca', 'Michoacán', 'Bosque', 'Michoacán'),
+('Sian Ka\'an', 'Quintana Roo', 'Humedal', 'Quintana Roo'),
+('Barranca del Cobre', 'Chihuahua', 'Montaña', 'Chihuahua'),
+('Lagunas de Montebello', 'Chiapas', 'Lacustre', 'Chiapas'),
+('Isla Isabel', 'Nayarit', 'Isla', 'Nayarit'),
+('Desierto de Wirikuta', 'San Luis Potosí', 'Desierto', 'San Luis Potosí'),
+('Parque Nacional El Chico', 'Hidalgo', 'Bosque', 'Hidalgo'),
+('Celestún', 'Yucatán', 'Costero', 'Yucatán'),
+('Volcán Nevado de Colima', 'Jalisco', 'Montaña', 'Jalisco'), ('Cañón del Sumidero', 'Chiapas', 'Cañón', 'Chiapas'),
+('Reserva de la Biosfera El Triunfo', 'Chiapas', 'Bosque', 'Chiapas'),
+('Laguna de Yuriria', 'Guanajuato', 'Lacustre', 'Guanajuato'),
+('Parque Nacional Cumbres de Monterrey', 'Nuevo León', 'Montaña', 'Nuevo León'),
+('Reserva de la Biósfera Tehuacán-Cuicatlán', 'Oaxaca', 'Desierto', 'Oaxaca'),
+('Laguna de Cuyutlán', 'Colima', 'Costero', 'Colima'),
+('Reserva de la Biósfera Los Tuxtlas', 'Veracruz', 'Selva', 'Veracruz'),
+('Laguna La María', 'Colima', 'Lacustre', 'Colima'),
+('Parque Nacional Izta-Popo', 'Estado de México', 'Montaña', 'Estado de México'),
+('Reserva de la Biósfera Calakmul', 'Campeche', 'Selva', 'Campeche');
+
+
+INSERT INTO grupo (carac_patas, carac_pico, carac_dedos, nombre) VALUES
+('Patas largas con dedos delgados', 'Pico largo y curvado', 'Tres dedos hacia adelante', 'Garzas'),
+('Patas cortas y robustas', 'Pico corto y fuerte', 'Tres dedos hacia adelante', 'Carpinteros'),
+('Patas palmeadas', 'Pico ancho y plano', 'Tres dedos palmeados', 'Patos'),
+('Patas largas con escamas', 'Pico ganchudo', 'Cuatro dedos con garras', 'Rapaces'),
+('Patas cortas y finas', 'Pico pequeño y puntiagudo', 'Tres dedos hacia adelante', 'Colibríes'),
+('Patas fuertes con escamas', 'Pico grueso y cónico', 'Tres dedos hacia adelante', 'Gorriones'),
+('Patas largas y delgadas', 'Pico largo y recto', 'Cuatro dedos largos', 'Zancudas'),
+('Patas cortas con plumas', 'Pico ancho y corto', 'Tres dedos hacia adelante', 'Búhos'),
+('Patas robustas con escamas', 'Pico fuerte y curvo', 'Tres dedos hacia adelante', 'Loros'),
+('Patas muy cortas', 'Pico pequeño y delgado', 'Tres dedos hacia adelante', 'Pájaros cantores'), ('Patas largas con membranas', 'Pico recto y puntiagudo', 'Cuatro dedos unidos', 'Flamencos'),
+('Patas fuertes y cortas', 'Pico largo y delgado', 'Tres dedos hacia adelante', 'Martines pescadores'),
+('Patas palmípedas', 'Pico largo y ganchudo', 'Cuatro dedos palmeados', 'Cormoranes'),
+('Patas con uñas curvas', 'Pico corto y ganchudo', 'Cuatro dedos con garras', 'Halcones'),
+('Patas largas y escamosas', 'Pico puntiagudo', 'Tres dedos delgados', 'Aves limícolas'),
+('Patas cortas con membrana parcial', 'Pico delgado', 'Tres dedos parcialmente palmeados', 'Fúlicas'),
+('Patas fuertes con garras', 'Pico corto y grueso', 'Tres dedos hacia adelante', 'Pinzones'),
+('Patas plumadas', 'Pico fuerte y curvo', 'Cuatro dedos con garras', 'Águilas'),
+('Patas largas y fuertes', 'Pico ganchudo', 'Tres dedos con garras', 'Caracaras'),
+('Patas delgadas', 'Pico cónico', 'Tres dedos hacia adelante', 'Canarios');
+
+INSERT INTO especie (nombre_cientifico, nombre_vulgar, descripcion, idgrupo) VALUES
+('Ardea alba', 'Garza blanca', 'Garza grande de plumaje completamente blanco', 1),
+('Melanerpes aurifrons', 'Carpintero frente dorada', 'Carpintero con frente amarilla y pecho barrado', 2),
+('Anas platyrhynchos', 'Pato de collar', 'Pato común con espejuelo azul en las alas', 3),
+('Buteo jamaicensis', 'Aguililla cola roja', 'Rapaz común con cola rojiza', 4),
+('Calothorax lucifer', 'Colibrí lucifer', 'Colibrí pequeño con garganta morada', 5),
+('Haemorhous mexicanus', 'Gorrión doméstico', 'Gorrión común de pecho gris y cabeza café', 6),
+('Himantopus mexicanus', 'Cigüeñuela', 'Ave zancuda con patas largas y rojas', 7),
+('Glaucidium gnoma', 'Tecolote bajeño', 'Búho pequeño con "falsos ojos" en la nuca', 8),
+('Amazona finschi', 'Loro corona lila', 'Loro verde con corona lila y roja', 9),
+('Cardinalis cardinalis', 'Cardenal rojo', 'Ave cantora roja brillante con cresta', 10), ('Phoenicopterus ruber', 'Flamenco del Caribe', 'Ave rosada de largas patas y cuello', 11),
+('Chloroceryle americana', 'Martín pescador verde', 'Pequeño pescador de plumaje verdoso', 12),
+('Phalacrocorax brasilianus', 'Cormorán neotropical', 'Ave negra con cuello largo', 13),
+('Falco sparverius', 'Cernícalo americano', 'Pequeño halcón con cara blanca y negra', 14),
+('Limosa fedoa', 'Becasa de mar', 'Ave de patas largas y pico curvo', 15),
+('Fulica americana', 'Gallareta americana', 'Ave acuática negra con pico blanco', 16),
+('Haemorhous purpureus', 'Pinzón purpúreo', 'Ave pequeña de colores rojo púrpura', 17),
+('Aquila chrysaetos', 'Águila real', 'Ave rapaz de gran tamaño', 18),
+('Caracara cheriway', 'Caracara quebrantahuesos', 'Ave rapaz terrestre', 19),
+('Serinus canaria', 'Canario', 'Ave pequeña de canto melódico', 20);
+
+INSERT INTO observador (nombre, amaterno, apaterno, dni, direccion, idasociacion, zona_cod_zona) VALUES
+('Juan', 'González', 'López', 'GOLJ800101', 'Calle Rosa 23, CDMX', 1, 1),
+('María', 'Sánchez', 'Martínez', 'SAMM850202', 'Av. Siempre Viva 45, Guanajuato', 2, 2),
+('Carlos', 'Hernández', 'Pérez', 'HEPC900303', 'Calle 60 #123, Mérida', 3, 3),
+('Ana', 'García', 'Rodríguez', 'GARA750404', 'Av. Chapultepec 789, Guadalajara', 4, 10),
+('Luis', 'Ramírez', 'Díaz', 'RADL820505', 'Calle Morelos 56, Morelia', 5, 2),
+('Patricia', 'Flores', 'Vargas', 'FOVP880606', 'Blvd. Díaz Ordaz 234, Monterrey', 6, 4),
+('Jorge', 'Castro', 'Mendoza', 'CAME930707', 'Boulevard Ruiz Cortines 12, Veracruz', 7, 9),
+('Laura', 'Ortega', 'Silva', 'ORSL870808', 'Calle Central 78, Tuxtla Gutiérrez', 8, 5),
+('Ricardo', 'Morales', 'Jiménez', 'MOJR790909', 'Macedonio Alcalá 45, Oaxaca', 9, 8),
+('Sofía', 'Vega', 'Ruiz', 'VERS851010', 'Av. Universidad 345, Chihuahua', 10, 4), ('Gabriel', 'Muñoz', 'Ramírez', 'MURG810101', 'Av. Reforma 150, Villahermosa', 11, 11),
+('Claudia', 'Pérez', 'Salas', 'PESC820202', 'Calle Independencia 22, Querétaro', 12, 12),
+('Esteban', 'Delgado', 'Moreno', 'DEME830303', 'Col. Centro, Pachuca', 13, 13),
+('Andrea', 'Zamora', 'López', 'ZALO840404', 'Av. Lázaro Cárdenas, Michoacán', 14, 14),
+('Diego', 'Ruiz', 'Santos', 'RUSA850505', 'Calle Zaragoza, Saltillo', 15, 15),
+('Tania', 'Mendoza', 'Olvera', 'MEOT860606', 'Centro, Colima', 16, 16),
+('Iván', 'Cruz', 'Villanueva', 'CRVI870707', 'Tlaxcala Centro', 17, 17),
+('Fernanda', 'Nieto', 'Barrera', 'NIBA880808', 'Juchitán Centro, Oaxaca', 18, 18),
+('Óscar', 'Velázquez', 'Gómez', 'VEGO890909', 'Col. Morelos, Tamaulipas', 19, 19),
+('Jimena', 'Ramos', 'Cervantes', 'RACE901010', 'Av. Kino, Hermosillo', 20, 20);
+
+INSERT INTO observacion (cod_observador, idespecie, fecha, comentarios) VALUES
+(1, 1, '2023-01-15', 'Vista en el lago de Chapultepec, alimentándose'),
+(2, 3, '2023-02-20', 'Grupo de 5 individuos en el lago de Yuriria'),
+(3, 5, '2023-03-10', 'Visitando flores de hibisco en jardín botánico'),
+(4, 7, '2023-04-05', 'Varias cigüeñuelas en laguna de Cajititlán'),
+(5, 2, '2023-05-12', 'Picoteando árbol en reserva de la mariposa monarca'),
+(6, 4, '2023-06-18', 'Posada en cactus en el desierto de Chihuahua'),
+(7, 9, '2023-07-22', 'Bandada de loros volando hacia el manglar'),
+(8, 6, '2023-08-30', 'Grupo de gorriones en comedero artificial'),
+(9, 8, '2023-09-14', 'Tecolote cazando insectos al anochecer'),
+(10, 10, '2023-10-25', 'Cardenal cantando en matorral desértico'), (11, 11, '2023-11-01', 'Grupo de flamencos en laguna costera'),
+(12, 12, '2023-11-05', 'Martín pescador cazando en arroyo'),
+(13, 13, '2023-11-09', 'Cormoranes secando alas sobre rocas'),
+(14, 14, '2023-11-12', 'Cernícalo sobrevolando zona urbana'),
+(15, 15, '2023-11-16', 'Becasa de mar alimentándose en lodo'),
+(16, 16, '2023-11-20', 'Gallareta nadando en laguna de Colima'),
+(17, 17, '2023-11-25', 'Pinzón buscando semillas en árboles'),
+(18, 18, '2023-11-28', 'Águila real volando en zona montañosa'),
+(19, 19, '2023-12-01', 'Caracara caminando entre matorrales'),
+(20, 20, '2023-12-05', 'Canario cantando en jardín doméstico');
